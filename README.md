@@ -2,6 +2,8 @@
 
 A status line for [Claude Code](https://claude.com/claude-code) that keeps a long session's vital signs in view: context usage, rate limits, cost, and cache hits.
 
+![The status line, annotated](docs/statusline.png)
+
 ```
 repo:branch | +120 -34 | Opus/high (1M) | Ctx ███░░░░░ 42% (+1.2k) | 5h ██░░░░░░ 30% (1h6m) | 7d █░░░░░░░ 12% (4d2h) | $1.23 | 35.4k | Hit 90%
 ```
