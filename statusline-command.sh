@@ -1,22 +1,77 @@
 #!/bin/bash
+# Claude Code status line. Needs jq, python3, and a Nerd Font in your terminal.
+# Settings live in ~/.claude/statusline.conf (see statusline.conf.example); nothing here needs editing.
 
-# Show staged/unstaged/ahead counts (S/U/A) after the branch
-SHOW_GIT_COUNTS=false
+# ---- Defaults (override any of these in the config file) -------------------------------------------------------
+STATUSLINE_THEME=sorbet     # sorbet | ember | sunset
+STATUSLINE_LAYOUT=compact   # compact: one line, shrinks to fit | wrap: usage on line 1, repo and diff on line 2 | full: never shrinks
+STATUSLINE_BG=dark          # dark | light (terminal background)
+STATUSLINE_MARGIN=6         # columns kept free at the right edge when fitting
+BILLING=auto                # auto | plan | api: api hides 5h/7d and puts the cost in a colored pill
+GROWTH_SHOW=percent         # tokens | percent | both: the number in the growth pill
+GROWTH_COLOR_BY=percent     # percent | tokens: percent scales the 8 color steps to the context window
+SHOW_GIT_COUNTS=false       # true adds staged / unstaged / ahead counts after the branch
+SHOW_DIFF=true SHOW_COST=true SHOW_TOKENS=true SHOW_CACHE=true
+COST_STYLE=auto             # auto | pill | text: auto is a pill for api billing, plain text for a plan
+COST_STEPS="5 25 50 100 200 500 1000 2500"   # cents at which the cost pill steps to the next color
+GIT_TTL=5                   # seconds a git result is cached
 
-# ANSI codes
-RST=$'\033[0m' DIM=$'\033[2m' RED=$'\033[31m' GREEN=$'\033[32m' YELLOW=$'\033[33m'
-BLUE=$'\033[34m' CYAN=$'\033[36m' ORANGE=$'\033[38;5;208m' GRAY=$'\033[90m' WHITE=$'\033[97m' LBLUE=$'\033[94m' TEAL=$'\033[38;5;80m' LABEL=$'\033[38;5;250m' AQUA=$'\033[38;2;45;251;251m' VIOLET=$'\033[38;2;176;38;255m'
+conf="${STATUSLINE_CONF:-$HOME/.claude/statusline.conf}"
+[ -f "$conf" ] && . "$conf" 2>/dev/null
 
-# Requires jq; fail quietly with a hint instead of a broken status line
+# Fall back to the default for any value that is not valid, so a typo cannot break the line
+case "$STATUSLINE_THEME" in sorbet|ember|sunset) ;; *) STATUSLINE_THEME=sorbet ;; esac
+case "$STATUSLINE_LAYOUT" in compact|wrap|full) ;; *) STATUSLINE_LAYOUT=compact ;; esac
+case "$STATUSLINE_BG" in dark|light) ;; *) STATUSLINE_BG=dark ;; esac
+case "$BILLING" in auto|plan|api) ;; *) BILLING=auto ;; esac
+case "$COST_STYLE" in auto|pill|text) ;; *) COST_STYLE=auto ;; esac
+case "$GROWTH_SHOW" in tokens|percent|both) ;; *) GROWTH_SHOW=percent ;; esac
+case "$GROWTH_COLOR_BY" in percent|tokens) ;; *) GROWTH_COLOR_BY=percent ;; esac
+case "$STATUSLINE_MARGIN" in ''|*[!0-9]*) STATUSLINE_MARGIN=6 ;; esac
+
+# ---- Themes -----------------------------------------------------------------------------------------------------
+ESC=$'\033'
+RST="${ESC}[0m" DIM="${ESC}[2m"
+c256() { printf '%s[38;5;%sm' "$ESC" "$1"; }
+# T_GROW: 8 growth steps light to heavy; T_OFF: below the first step; T_INK: text on a filled pill;
+# T_INSET: background of the cache inset; T_HIT: cache text for 80%+, 50%+, below
+case "$STATUSLINE_THEME" in
+    ember)
+        T_GROW=(223 222 221 215 209 203 197 196) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(222 215 203)
+        C_REPO=$(c256 216) C_BRANCH=$(c256 180) C_COLON=$(c256 250) C_MODEL=$(c256 222) C_EFFORT=$(c256 215)
+        C_ADD=$(c256 150) C_REM=$(c256 203) C_COST=$(c256 215) C_TOK=$(c256 255) C_LABEL=$(c256 250) C_DIM=$(c256 244) ;;
+    sunset)
+        T_GROW=(229 222 216 210 204 198 168 162) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(223 210 198)
+        C_REPO=$(c256 223) C_BRANCH=$(c256 216) C_COLON=$(c256 250) C_MODEL=$(c256 210) C_EFFORT=$(c256 204)
+        C_ADD=$(c256 186) C_REM=$(c256 204) C_COST=$(c256 222) C_TOK=$(c256 255) C_LABEL=$(c256 250) C_DIM=$(c256 244) ;;
+    *)  # sorbet: soft pastel, mint to coral pill
+        T_GROW=(78 114 150 186 221 215 209 203) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(78 221 203)
+        C_REPO="${ESC}[94m" C_BRANCH="${ESC}[36m" C_COLON="${ESC}[97m" C_MODEL="${ESC}[38;2;45;251;251m" C_EFFORT="${ESC}[36m"
+        C_ADD="${ESC}[32m" C_REM="${ESC}[31m" C_COST="${ESC}[38;5;80m" C_TOK="${ESC}[97m" C_LABEL="${ESC}[38;5;250m" C_DIM="${ESC}[90m" ;;
+esac
+if [ "$STATUSLINE_BG" = light ]; then   # darker text and a pale inset for a light terminal
+    T_INSET=254 T_HIT=(28 130 160)
+    C_REPO=$(c256 25) C_BRANCH=$(c256 30) C_COLON=$(c256 240) C_MODEL=$(c256 31) C_EFFORT=$(c256 30)
+    C_ADD=$(c256 28) C_REM=$(c256 124) C_COST=$(c256 30) C_TOK=$(c256 235) C_LABEL=$(c256 240) C_DIM=$(c256 244)
+fi
+C_ORANGE="${ESC}[38;5;208m" C_YELLOW="${ESC}[33m" C_RED="${ESC}[31m" C_BLUE="${ESC}[34m" C_GREEN="${ESC}[32m"
+SEP="${DIM} | ${RST}"
+LCAP=$'\xee\x82\xb6' RCAP=$'\xee\x82\xb4' BOLT=$'\xef\x83\xa7'
+
+# ---- Environment ------------------------------------------------------------------------------------------------
 command -v jq > /dev/null || { printf 'statusline: jq not found'; exit 0; }
 
-# Read the JSON input from stdin
+# ${#var} must count characters, not bytes: make sure a UTF-8 locale is active
+_t=$'\xc3\xa9'
+if [ "${#_t}" -ne 1 ]; then
+    export LC_ALL=en_US.UTF-8
+    _t=$'\xc3\xa9'
+    [ "${#_t}" -ne 1 ] && export LC_ALL=C.UTF-8
+fi
+
 input=$(cat)
-
-# Per-session state (context delta baseline, running token total)
-sd="$HOME/.claude/statusline-state"
-
-# Skip optional git locks so the status line never blocks other git commands
+sd="$HOME/.claude/statusline-state"   # per-session state, pruned by the hook after 14 days
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 export GIT_OPTIONAL_LOCKS=0
 
 # One jq call; fields are pipe-separated (non-whitespace so empty fields survive), absent values become empty strings
@@ -47,107 +102,142 @@ IFS='|' read -r current_dir repo_name worktree model effort used_pct five five_r
 )
 
 [ -z "$repo_name" ] && repo_name=$(basename "$current_dir")
+# A new session reports no usage until its first response: show Ctx as 0% instead of hiding it
+[ -z "$used_pct" ] && used_pct=0
+now=$(date +%s)
 
+# ---- Plan or API billing ----------------------------------------------------------------------------------------
+# Rate limits are account-wide, but a new session does not report them until its first response. Remember the last
+# values and reuse any whose reset time has not passed. A marker outside the pruned state dir records that this
+# account has ever reported limits, which is how "auto" tells a plan from straight API keys.
+rl="$sd/ratelimits" seen="$HOME/.claude/statusline-seen-limits"
+if [ -n "$five$seven" ]; then
+    mkdir -p "$sd"
+    printf '%s|%s|%s|%s\n' "$five" "$five_reset" "$seven" "$seven_reset" > "$rl"
+    [ -f "$seen" ] || : > "$seen"
+elif [ -f "$rl" ]; then
+    IFS='|' read -r c5 c5r c7 c7r < "$rl"
+    [[ "$c5r" =~ ^[0-9]+$ ]] && [ "$c5r" -gt "$now" ] && [ -n "$c5" ] && five=$c5 five_reset=$c5r
+    [[ "$c7r" =~ ^[0-9]+$ ]] && [ "$c7r" -gt "$now" ] && [ -n "$c7" ] && seven=$c7 seven_reset=$c7r
+fi
+api=false
+case "$BILLING" in
+    api) api=true ;;
+    auto) [ -z "$five$seven" ] && [ ! -f "$seen" ] && api=true ;;
+esac
+[ "$api" = true ] && five="" seven=""
+
+# ---- Git (cached) -----------------------------------------------------------------------------------------------
 g() { git -C "$current_dir" "$@" 2>/dev/null; }
-
 branch="" staged=0 unstaged=0 ahead=0
-if g rev-parse --git-dir > /dev/null; then
-    branch=$(g branch --show-current)
-    [ -z "$branch" ] && branch=$(g rev-parse --short HEAD)
-    staged=$(g diff --cached --numstat | wc -l | tr -d ' ')
-    # Unstaged = modified tracked files plus untracked files
-    unstaged=$(( $(g diff --numstat | wc -l) + $(g ls-files --others --exclude-standard | wc -l) ))
-    if g rev-parse --abbrev-ref '@{upstream}' > /dev/null; then
-        ahead=$(g rev-list --count '@{upstream}..HEAD')
-    else
-        # No upstream: count commits ahead of the default branch (origin/HEAD, else master/main)
-        base=$(g symbolic-ref -q --short refs/remotes/origin/HEAD)
-        if [ -z "$base" ]; then
-            for b in master main origin/master origin/main; do
-                g rev-parse --verify -q "$b" > /dev/null && { base=$b; break; }
-            done
+gcache="$sd/git.$(printf '%s' "$current_dir" | cksum | cut -d' ' -f1)"
+if [ -f "$gcache" ]; then
+    IFS='|' read -r gts branch staged unstaged ahead < "$gcache"
+    [ $(( now - ${gts:-0} )) -ge "$GIT_TTL" ] && branch="" gts=""
+fi
+if [ -z "$branch" ] && [ -z "$gts" ]; then
+    if g rev-parse --git-dir > /dev/null; then
+        branch=$(g branch --show-current)
+        [ -z "$branch" ] && branch=$(g rev-parse --short HEAD)
+        if [ "$SHOW_GIT_COUNTS" = true ]; then
+            staged=$(g diff --cached --numstat | wc -l | tr -d ' ')
+            # Unstaged = modified tracked files plus untracked files
+            unstaged=$(( $(g diff --numstat | wc -l) + $(g ls-files --others --exclude-standard | wc -l) ))
+            if g rev-parse --abbrev-ref '@{upstream}' > /dev/null; then
+                ahead=$(g rev-list --count '@{upstream}..HEAD')
+            else
+                # No upstream: count commits ahead of the default branch (origin/HEAD, else master/main)
+                base=$(g symbolic-ref -q --short refs/remotes/origin/HEAD)
+                if [ -z "$base" ]; then
+                    for b in master main origin/master origin/main; do
+                        g rev-parse --verify -q "$b" > /dev/null && { base=$b; break; }
+                    done
+                fi
+                [ -n "$base" ] && ahead=$(g rev-list --count "$base..HEAD")
+            fi
         fi
-        [ -n "$base" ] && ahead=$(g rev-list --count "$base..HEAD")
     fi
+    mkdir -p "$sd"
+    printf '%s|%s|%s|%s|%s\n' "$now" "$branch" "$staged" "$unstaged" "$ahead" > "$gcache"
 fi
 
-SEP="${DIM} | ${RST}"
-
-# Colorize a count: given color, or dim when the count is 0
-count_seg() { # label count color
-    local c="$3"
-    [ "${2:-0}" -eq 0 ] && c="$GRAY"
-    printf '%s%s: %s%s' "$c" "$1" "${2:-0}" "$RST"
+# ---- Helpers ----------------------------------------------------------------------------------------------------
+# Compact token count: 842, 12.3k, 1.2M
+fmt_tok() { # n
+    local n=$1
+    if [ "$n" -ge 1000000 ]; then printf '%d.%dM' $((n / 1000000)) $((n % 1000000 / 100000))
+    elif [ "$n" -ge 1000 ]; then printf '%d.%dk' $((n / 1000)) $((n % 1000 / 100))
+    else printf '%d' "$n"; fi
 }
 
 # Time left until an epoch-seconds reset, e.g. 1h20m, 2d3h
-until_reset() { # epoch
-    local d=$(( $1 - $(date +%s) ))
+_t=""
+until_reset() { # epoch -> $_t
+    local d=$(( $1 - now ))
+    _t=""
     [ "$d" -le 0 ] && return
-    if [ "$d" -ge 86400 ]; then printf '%dd%dh' $((d / 86400)) $((d % 86400 / 3600))
-    elif [ "$d" -ge 3600 ]; then printf '%dh%dm' $((d / 3600)) $((d % 3600 / 60))
-    else printf '%dm' $((d / 60)); fi
+    if [ "$d" -ge 86400 ]; then _t="$((d / 86400))d$((d % 86400 / 3600))h"
+    elif [ "$d" -ge 3600 ]; then _t="$((d / 3600))h$((d % 3600 / 60))m"
+    else _t="$((d / 60))m"; fi
 }
 
-# Fill bar of N cells for a 0-100 value
-bar() { # value
-    local n=8 f i out=""
-    f=$(( ($1 * n + 50) / 100 ))
-    [ "$f" -gt "$n" ] && f=$n
+# Visible width of a string: escape codes removed, characters counted (Nerd Font glyphs count as one cell)
+vis=0
+measure() { # strip one escape sequence at a time: a global extglob replace is pathologically slow on long strings in bash 3.2
+    local s=$1 rest
+    while [[ $s == *"${ESC}["* ]]; do
+        rest=${s#*"${ESC}["}; rest=${rest#*m}; s=${s%%"${ESC}["*}$rest
+    done
+    vis=${#s}
+}
+
+# A filled pill with rounded caps
+pill() { # fill text -> $_o
+    _o="${ESC}[38;5;$1m${LCAP}${ESC}[48;5;$1m${ESC}[38;5;${T_INK}m$2${RST}${ESC}[38;5;$1m${RCAP}${RST}"
+}
+
+# Step of a value against ascending thresholds: 0 .. number of thresholds
+_step=0
+step_of() { # value thresholds... -> $_step
+    local v=$1 t; shift
+    _step=0
+    for t in "$@"; do [ "$v" -ge "$t" ] && _step=$((_step+1)); done
+}
+
+# "3.54" -> 354 (cents), tolerant of "7.148909" and "12"
+_cents=0
+to_cents() { # -> $_cents
+    local i=${1%%.*} f=""
+    [[ "$1" == *.* ]] && f=${1#*.}
+    f="${f}00"; _cents=$(( 10#${i:-0} * 100 + 10#${f:0:2} ))
+}
+
+# ---- Bars: one python call renders every bar at every width a shrink stage might need ---------------------------
+bars=()
+if [ -n "$used_pct$five$seven" ]; then
+    # System python on purpose: a pyenv shim on PATH adds ~200 ms per run
+    py=/usr/bin/python3; [ -x "$py" ] || py=python3
+    n=0
+    while IFS= read -r line; do bars[n]=$line; n=$((n+1)); done < <("$py" "$here/statusline-ctxbar.py" --theme "$STATUSLINE_THEME" --bg "$STATUSLINE_BG" \
+        --widths 10,6,3 "${used_pct:+$(printf '%.0f' "$used_pct")}" "${five:+$(printf '%.0f' "$five")}" "${seven:+$(printf '%.0f' "$seven")}" 2>/dev/null)
+fi
+# bars[w*3 + k]: w = 0 full, 1 shorter, 2 minimal; k = 0 Ctx, 1 5h, 2 7d
+_bar=""
+bar_for() { _bar=${bars[$(( $2 * 3 + $1 ))]}; }  # k width-index
+
+# Plain bar segment (python missing): green <50, yellow 50-80, red >80
+plain_bar() { # label value
+    local v n=8 f i out="" col
+    v=$(printf '%.0f' "$2"); f=$(( (v * n + 50) / 100 )); [ "$f" -gt "$n" ] && f=$n
+    if [ "$v" -gt 80 ]; then col="$C_RED"; elif [ "$v" -ge 50 ]; then col="$C_YELLOW"; else col="$C_GREEN"; fi
     for ((i = 0; i < n; i++)); do
         if [ "$i" -lt "$f" ]; then out="$out"$'\xe2\x96\x88'; else out="$out"$'\xe2\x96\x91'; fi
     done
-    printf '%s' "$out"
+    _o="${C_LABEL}$1${RST} ${col}${out} ${v}%${RST}"
 }
 
-# Bar segment colored green <50, yellow 50-80, red >80 unless overridden
-pct_seg() { # label value [reset_epoch] [suffix] [color override]
-    local v c t=""
-    v=$(printf '%.0f' "$2")
-    if [ "$v" -gt 80 ]; then c="$RED"; elif [ "$v" -ge 50 ]; then c="$YELLOW"; else c="$GREEN"; fi
-    [ -n "$5" ] && c="$5"
-    [[ "$3" =~ ^[0-9]+$ ]] && t=$(until_reset "$3")
-    printf '%s%s%s %s%s %s%%%s%s%s' "$LABEL" "$1" "$RST" "$c" "$(bar "$v")" "$v" "$RST" "$4" "${t:+$GRAY ($t)$RST}"
-}
-
-# Context color: green 0-20, yellow 20-50, red 50-80, violet 80-100 (20% is 200k on a 1M window)
-ctx_color() { # percent
-    local v
-    v=$(printf '%.0f' "$1")
-    if [ "$v" -ge 80 ]; then printf '%s' "$VIOLET"
-    elif [ "$v" -ge 50 ]; then printf '%s' "$RED"
-    elif [ "$v" -ge 20 ]; then printf '%s' "$YELLOW"
-    else printf '%s' "$GREEN"; fi
-}
-
-out="${LBLUE}${repo_name}${RST}"
-[ -n "$branch" ] && out="$out${WHITE}:${RST}${CYAN}${branch}${RST}"
-# Worktree is shown only when its name differs from the branch ("/" counts as "-")
-[ -n "$worktree" ] && [ "$worktree" != "${branch//\//-}" ] && out="$out ${GRAY}(wt: ${worktree})${RST}"
-[ "$SHOW_GIT_COUNTS" = true ] && [ -n "$branch" ] && out="$out${SEP}$(count_seg S "$staged" "$WHITE")${SEP}$(count_seg U "$unstaged" "$YELLOW")${SEP}$(count_seg A "$ahead" "$BLUE")"
-
-# Compact token count: 842, 12.3k, 1.2M
-fmt_tok() { # n
-    awk -v n="$1" 'BEGIN { if (n >= 1e6) printf "%.1fM", n / 1e6; else if (n >= 1e3) printf "%.1fk", n / 1e3; else printf "%d", n }'
-}
-
-# Effort: cool (low) to hot (max)
-case "$effort" in
-    low) ec="$BLUE" ;;
-    medium) ec="$CYAN" ;;
-    high) ec="$YELLOW" ;;
-    xhigh) ec="$ORANGE" ;;
-    max) ec="$RED" ;;
-    *) ec="" ;;
-esac
-me=""
-[ -n "$model" ] && me="${AQUA}${model}${RST}"
-[ -n "$effort" ] && me="${me:+$me/}${ec}${effort}${RST}"
-[ -n "$me" ] && [ -n "$cwsize" ] && me="$me ${GRAY}($(fmt_tok "$cwsize" | sed 's/\.0//'))${RST}"
-[ -n "$added$removed" ] && out="$out${SEP}${GREEN}+${added:-0}${RST} ${RED}-${removed:-0}${RST}"
-[ -n "$me" ] && out="$out${SEP}$me"
-
-ctx_delta=""
+# ---- Growth pill and cache inset --------------------------------------------------------------------------------
+pill_growth="" pill_full=""
 if [ -n "$sid$tin$tout" ] && [ -n "${sid//[^A-Za-z0-9_-]/}" ]; then
     # Context growth this prompt: statusline-hook.sh copies .latest to .baseline on each prompt submit
     sid=${sid//[^A-Za-z0-9_-]/}
@@ -157,16 +247,47 @@ if [ -n "$sid$tin$tout" ] && [ -n "${sid//[^A-Za-z0-9_-]/}" ]; then
     [ -f "$sd/$sid.baseline" ] && read -r bin bout < "$sd/$sid.baseline"
     d=$(( ${tin:-0} + ${tout:-0} - ${bin:-0} - ${bout:-0} ))
     [ "$d" -lt 0 ] && d=0
-    ctx_delta=" ${GRAY}(+$(fmt_tok "$d"))${RST}"
+    # 8 color steps, light to heavy: tenths of a percent of the window, or fixed token counts
+    if [ "$GROWTH_COLOR_BY" = percent ] && [ "${cwsize:-0}" -gt 0 ]; then
+        step_of $(( d * 1000 / cwsize )) 5 10 20 40 75 125 200 350
+    else
+        step_of "$d" 1000 2000 4000 8000 15000 25000 40000 70000
+    fi
+    st=$_step
+    gc=($T_OFF ${T_GROW[*]})
+    gtxt=$(fmt_tok "$d")
+    if [ "$GROWTH_SHOW" != tokens ] && [ "${cwsize:-0}" -gt 0 ]; then
+        pm=$(( d * 1000 / cwsize )); ptxt=$(printf '%d.%d%%' $((pm / 10)) $((pm % 10)))
+        if [ "$GROWTH_SHOW" = both ]; then gtxt="$gtxt $ptxt"; else gtxt=$ptxt; fi
+    fi
+    # Cache hit rate (cache reads / all input tokens); the lowest value since the last prompt is kept, so a cold call stays visible
+    hit=""
+    if [ -n "$crd" ]; then
+        total=$(( ${cin:-0} + ${ccr:-0} + crd ))
+        [ "$total" -gt 0 ] && hit=$(( (crd * 100 + total / 2) / total ))
+    fi
+    if [ -n "$hit" ]; then
+        hmin=100
+        [ -f "$sd/$sid.hitmin" ] && read -r hmin < "$sd/$sid.hitmin"
+        case "$hmin" in ''|*[!0-9]*) hmin=100 ;; esac
+        [ "$hit" -lt "$hmin" ] && hmin=$hit
+        printf '%s\n' "$hmin" > "$sd/$sid.hitmin"
+        hit=$hmin
+    fi
+    gcol=${gc[$st]}
+    pill_growth=" ${ESC}[38;5;${gcol}m${LCAP}${ESC}[48;5;${gcol}m${ESC}[38;5;${T_INK}m+${gtxt}${RST}${ESC}[38;5;${gcol}m${RCAP}${RST}"
+    pill_full=$pill_growth
+    if [ -n "$hit" ] && [ "$SHOW_CACHE" = true ]; then
+        if [ "$hit" -ge 80 ]; then hc=${T_HIT[0]}; elif [ "$hit" -ge 50 ]; then hc=${T_HIT[1]}; else hc=${T_HIT[2]}; fi
+        # growth pill, then an inset (padded) with a bolt and the hit rate in its own color
+        pill_full=" ${ESC}[38;5;${gcol}m${LCAP}${ESC}[48;5;${gcol}m${ESC}[38;5;${T_INK}m+${gtxt}${ESC}[38;5;${gcol}m${ESC}[48;5;${T_INSET}m${RCAP} ${ESC}[38;5;${hc}m${BOLT} ${hit}%${RST}${ESC}[38;5;${T_INSET}m${RCAP}${RST}"
+    fi
 fi
-[ -n "$used_pct" ] && out="$out${SEP}$(pct_seg Ctx "$used_pct" "" "$ctx_delta" "$(ctx_color "$used_pct")")"
-[ -n "$five" ] && out="$out${SEP}$(pct_seg 5h "$five" "$five_reset")"
-[ -n "$seven" ] && out="$out${SEP}$(pct_seg 7d "$seven" "$seven_reset")"
 
-[ -n "$cost" ] && out="$out${SEP}${TEAL}$(printf '$%.2f' "$cost")${RST}"
-
-# Session total tokens: new input + cache writes + output, summed per API call from the transcript.
-# Incremental: the state file keeps "offset sum last_id last_total" so each render only parses appended lines.
+# ---- Session total tokens (incremental transcript parse) -------------------------------------------------------
+# New input + cache writes + output, summed per API call. The state file keeps "offset sum last_id last_total",
+# so each render only parses appended lines.
+tok_total=""
 if [ -n "$sid" ] && [ -f "$tpath" ]; then
     tf="$sd/$sid.total"
     off=0 sum=0 lid="" ltot=0
@@ -195,17 +316,151 @@ if [ -n "$sid" ] && [ -f "$tpath" ]; then
             printf '%s %s %s %s\n' "$off" "$sum" "${lid:--}" "$ltot" > "$tf"
         fi
     fi
-    [ "${lid:-}" = "-" ] && lid=""
-    out="$out${SEP}${WHITE}$(fmt_tok "${sum:-0}")${RST}"
+    tok_total=$(fmt_tok "${sum:-0}")
 fi
 
-# Cache hit rate of the last API call: cache reads / all input tokens
-if [ -n "$crd" ]; then
-    total=$(( ${cin:-0} + ${ccr:-0} + crd ))
-    if [ "$total" -gt 0 ]; then
-        hit=$(( (crd * 100 + total / 2) / total ))
-        if [ "$hit" -ge 80 ]; then hc="$GREEN"; elif [ "$hit" -ge 50 ]; then hc="$YELLOW"; else hc="$RED"; fi
-        out="$out${SEP}${LABEL}Hit${RST} ${hc}${hit}%${RST}"
+# ---- Segments, built for a given shrink stage -------------------------------------------------------------------
+# Effort: cool (low) to hot (max)
+case "$effort" in
+    low|medium) ec="$C_EFFORT" ;;
+    high) ec="$C_YELLOW" ;;
+    xhigh) ec="$C_ORANGE" ;;
+    max) ec="$C_RED" ;;
+    *) ec="" ;;
+esac
+winsz=""
+[ -n "$cwsize" ] && { winsz=$(fmt_tok "$cwsize"); winsz=${winsz/.0k/k}; winsz=${winsz/.0M/M}; }
+
+# What each shrink stage removes (stage 0 = everything; each stage keeps the earlier removals):
+#   1 shorter bars   2 reset times and window size   3 token total   4 cache inset   5 7d   6 diff
+#   7 5h             8 minimal bars, model name only 9 worktree name  10 cost (plan billing)  11 model
+# Repo, Ctx and the growth pill are never dropped.
+MAXSTAGE=11
+stage_vars() { # stage
+    bw=0 show_reset=1 show_win=1 show_tok=1 show_cache_in=1 show_7d=1 show_diff=1 show_5h=1 show_eff=1 show_wt=1 show_cost=1 show_model=1
+    [ "$1" -ge 1 ] && bw=1
+    [ "$1" -ge 2 ] && show_reset=0 show_win=0
+    [ "$1" -ge 3 ] && show_tok=0
+    [ "$1" -ge 4 ] && show_cache_in=0
+    [ "$1" -ge 5 ] && show_7d=0
+    [ "$1" -ge 6 ] && show_diff=0
+    [ "$1" -ge 7 ] && show_5h=0
+    [ "$1" -ge 8 ] && bw=2 show_eff=0
+    [ "$1" -ge 9 ] && show_wt=0
+    [ "$1" -ge 10 ] && [ "$api" != true ] && show_cost=0
+    [ "$1" -ge 11 ] && show_model=0
+}
+
+# Segment builders set $_o instead of printing, so the shrink loop forks nothing
+_o=""
+limit_seg() { # label k value reset
+    _o=""
+    if [ -n "${bars[0]}" ]; then bar_for "$2" "$bw"; _o="${C_LABEL}$1${RST} $_bar"
+    else plain_bar "$1" "$3"; fi
+    if [ "$show_reset" = 1 ] && [[ "$4" =~ ^[0-9]+$ ]]; then
+        until_reset "$4"; [ -n "$_t" ] && _o="$_o${C_DIM} ($_t)${RST}"
+    fi
+}
+
+git_seg() {
+    _o="${C_REPO}${repo_name}${RST}"
+    [ -n "$branch" ] && _o="$_o${C_COLON}:${RST}${C_BRANCH}${branch}${RST}"
+    # Worktree is shown only when its name differs from the branch ("/" counts as "-")
+    [ "$show_wt" = 1 ] && [ -n "$worktree" ] && [ "$worktree" != "${branch//\//-}" ] && _o="$_o ${C_DIM}(wt: ${worktree})${RST}"
+    if [ "$SHOW_GIT_COUNTS" = true ] && [ -n "$branch" ]; then
+        local cs=$C_REPO cu=$C_YELLOW ca=$C_BLUE
+        [ "${staged:-0}" -eq 0 ] && cs=$C_DIM
+        [ "${unstaged:-0}" -eq 0 ] && cu=$C_DIM
+        [ "${ahead:-0}" -eq 0 ] && ca=$C_DIM
+        _o="$_o${SEP}${cs}S: ${staged:-0}${RST}${SEP}${cu}U: ${unstaged:-0}${RST}${SEP}${ca}A: ${ahead:-0}${RST}"
+    fi
+}
+
+diff_seg() { _o=""; [ -n "$added$removed" ] && _o="${C_ADD}+${added:-0}${RST} ${C_REM}-${removed:-0}${RST}"; }
+
+model_seg() {
+    _o=""
+    [ -n "$model" ] && _o="${C_MODEL}${model}${RST}"
+    [ "$show_eff" = 1 ] && [ -n "$effort" ] && _o="${_o:+$_o/}${ec}${effort}${RST}"
+    [ "$show_win" = 1 ] && [ -n "$_o" ] && [ -n "$winsz" ] && _o="$_o ${C_DIM}(${winsz})${RST}"
+}
+
+ctx_seg() {
+    local pl=$pill_growth
+    [ "$show_cache_in" = 1 ] && pl=$pill_full
+    if [ -n "${bars[0]}" ]; then bar_for 0 "$bw"; _o="${C_LABEL}Ctx${RST} $_bar$pl"
+    else plain_bar Ctx "$used_pct"; _o="$_o$pl"; fi
+}
+
+cost_seg() {
+    _o=""
+    [ -n "$cost" ] || return
+    local txt; printf -v txt '$%.2f' "$cost"
+    if [ "$COST_STYLE" = pill ] || { [ "$COST_STYLE" = auto ] && [ "$api" = true ]; }; then
+        # A pill that steps through the growth colors as the bill grows (the default for API billing, where cost is the meter)
+        to_cents "$cost"; step_of "$_cents" $COST_STEPS
+        local cc=(240 "${T_GROW[@]}")
+        pill "${cc[$_step]}" "$txt"
+    else
+        _o="${C_COST}${txt}${RST}"
+    fi
+}
+
+join_segs() { # segments... -> $_joined (empty segments skipped)
+    local s out=""
+    for s in "$@"; do [ -n "$s" ] && out="${out:+$out$SEP}$s"; done
+    _joined=$out
+}
+
+usage_segs() { # the usage part for the current stage -> $_joined
+    local m="" c a="" b="" k="" t=""
+    [ "$show_model" = 1 ] && { model_seg; m=$_o; }
+    ctx_seg; c=$_o
+    [ -n "$five" ] && [ "$show_5h" = 1 ] && { limit_seg 5h 1 "$five" "$five_reset"; a=$_o; }
+    [ -n "$seven" ] && [ "$show_7d" = 1 ] && { limit_seg 7d 2 "$seven" "$seven_reset"; b=$_o; }
+    [ "$SHOW_COST" = true ] && [ "$show_cost" = 1 ] && { cost_seg; k=$_o; }
+    [ "$SHOW_TOKENS" = true ] && [ "$show_tok" = 1 ] && [ -n "$tok_total" ] && t="${C_TOK}${tok_total}${RST}"
+    join_segs "$m" "$c" "$a" "$b" "$k" "$t"
+}
+
+# ---- Layout -----------------------------------------------------------------------------------------------------
+cols=${COLUMNS:-}
+[[ "$cols" =~ ^[0-9]+$ ]] || cols=$(tput cols 2>/dev/null)
+[[ "$cols" =~ ^[0-9]+$ ]] || cols=0
+avail=$(( cols - STATUSLINE_MARGIN ))
+fit() { [ "$STATUSLINE_LAYOUT" = full ] || [ "$cols" -le 0 ] || [ "$vis" -le "$avail" ]; }
+
+show_wt=1
+git_seg; gitpart=$_o
+diffpart=""
+[ "$SHOW_DIFF" = true ] && { diff_seg; diffpart=$_o; }
+
+if [ "$STATUSLINE_LAYOUT" = wrap ]; then
+    # Line 1: model and usage, shrunk until it fits. Line 2: repo:branch and the diff, which never shrink.
+    for ((s = 0; s <= MAXSTAGE; s++)); do
+        stage_vars "$s"; usage_segs; measure "$_joined"; fit && break
+    done
+    line1=$_joined
+    join_segs "$gitpart" "$diffpart"
+    out=$line1
+    [ -n "$_joined" ] && out="${out:+$out$'\n'}$_joined"
+else
+    # One line: shrink stage by stage until it fits. Repo, Ctx and the growth pill are never dropped.
+    for ((s = 0; s <= MAXSTAGE; s++)); do
+        stage_vars "$s"; usage_segs; ul=$_joined
+        git_seg; gitpart=$_o
+        dp=""; [ "$show_diff" = 1 ] && dp=$diffpart
+        join_segs "$gitpart" "$dp" "$ul"
+        measure "$_joined"; fit && break
+    done
+    out=$_joined
+    # Last resort: trim the branch name so the line fits
+    if ! fit && [ -n "$branch" ]; then
+        keep=$(( ${#branch} - (vis - avail) - 1 ))
+        if [ "$keep" -ge 6 ]; then
+            branch="${branch:0:keep}…"; git_seg; gitpart=$_o
+            join_segs "$gitpart" "$dp" "$ul"; out=$_joined
+        fi
     fi
 fi
 
