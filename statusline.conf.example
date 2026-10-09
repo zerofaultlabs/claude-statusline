@@ -1,7 +1,7 @@
 # Copy to ~/.claude/statusline.conf and uncomment what you want to change.
 # Every setting is optional. A value that is not valid falls back to its default.
 
-# Colors: sorbet (soft pastel, the default) | ember (warm amber to rose) | sunset (gold to magenta)
+# Colors: sorbet (soft pastel, the default) | ember (warm amber to rose) | sunset (gold to magenta) | ocean (teal to violet) | forest (green to orange) | grape (lilac to pink) | mono (grayscale)
 #STATUSLINE_THEME=sorbet
 
 # Terminal background: dark (default) | light. Light mode is minimal: darker text, a pale inset, a pale bar track.
@@ -12,6 +12,18 @@
 #   wrap     line 1 is model and usage (shrunk to fit), line 2 is repo:branch and the diff
 #   full     never shrinks; Claude Code truncates
 #STATUSLINE_LAYOUT=compact
+
+# Cells in a full-size usage bar (4 to 20)
+#BAR_WIDTH=10
+
+# Every segment in a pill (repo, git counts, diff, model, Ctx, 5h, 7d, cost, tokens) with no separators; turns on the two below as well
+#PILLS=false
+
+# Wrap the Ctx label, bar and percent in one pill, and the label text
+#CTX_PILL=false
+#CTX_LABEL=Ctx
+# The same pill for the 5h and 7d bars, with the reset time inside; pills sit side by side with no separator
+#LIMIT_PILL=false
 
 # Columns kept free at the right edge when fitting
 #STATUSLINE_MARGIN=6

@@ -3,10 +3,15 @@
 # Settings live in ~/.claude/statusline.conf (see statusline.conf.example); nothing here needs editing.
 
 # ---- Defaults (override any of these in the config file) -------------------------------------------------------
-STATUSLINE_THEME=sorbet     # sorbet | ember | sunset
+STATUSLINE_THEME=sorbet     # sorbet | ember | sunset | ocean | forest | grape | mono
 STATUSLINE_LAYOUT=compact   # compact: one line, shrinks to fit | wrap: usage on line 1, repo and diff on line 2 | full: never shrinks
 STATUSLINE_BG=dark          # dark | light (terminal background)
 STATUSLINE_MARGIN=6         # columns kept free at the right edge when fitting
+BAR_WIDTH=10                # cells in a full-size usage bar (4 to 20)
+CTX_PILL=false              # true wraps the Ctx label, bar and percent in one pill (a pill within a pill)
+CTX_LABEL=Ctx               # the label before the Ctx bar, e.g. C
+PILLS=false                 # true puts every segment in a pill (repo, git counts, diff, model, Ctx, 5h, 7d, cost, tokens) with no separators
+LIMIT_PILL=false            # true wraps the 5h and 7d label, bar, percent and reset time in a pill, no separator between pills
 BILLING=auto                # auto | plan | api: api hides 5h/7d and puts the cost in a colored pill
 GROWTH_SHOW=percent         # tokens | percent | both: the number in the growth pill
 GROWTH_COLOR_BY=percent     # percent | tokens: percent scales the 8 color steps to the context window
@@ -20,7 +25,7 @@ conf="${STATUSLINE_CONF:-$HOME/.claude/statusline.conf}"
 [ -f "$conf" ] && . "$conf" 2>/dev/null
 
 # Fall back to the default for any value that is not valid, so a typo cannot break the line
-case "$STATUSLINE_THEME" in sorbet|ember|sunset) ;; *) STATUSLINE_THEME=sorbet ;; esac
+case "$STATUSLINE_THEME" in sorbet|ember|sunset|ocean|forest|grape|mono) ;; *) STATUSLINE_THEME=sorbet ;; esac
 case "$STATUSLINE_LAYOUT" in compact|wrap|full) ;; *) STATUSLINE_LAYOUT=compact ;; esac
 case "$STATUSLINE_BG" in dark|light) ;; *) STATUSLINE_BG=dark ;; esac
 case "$BILLING" in auto|plan|api) ;; *) BILLING=auto ;; esac
@@ -28,6 +33,13 @@ case "$COST_STYLE" in auto|pill|text) ;; *) COST_STYLE=auto ;; esac
 case "$GROWTH_SHOW" in tokens|percent|both) ;; *) GROWTH_SHOW=percent ;; esac
 case "$GROWTH_COLOR_BY" in percent|tokens) ;; *) GROWTH_COLOR_BY=percent ;; esac
 case "$STATUSLINE_MARGIN" in ''|*[!0-9]*) STATUSLINE_MARGIN=6 ;; esac
+case "$CTX_PILL" in true|false) ;; *) CTX_PILL=false ;; esac
+case "$LIMIT_PILL" in true|false) ;; *) LIMIT_PILL=false ;; esac
+case "$PILLS" in true|false) ;; *) PILLS=false ;; esac
+[ "$PILLS" = true ] && CTX_PILL=true LIMIT_PILL=true
+case "$BAR_WIDTH" in ''|*[!0-9]*) BAR_WIDTH=10 ;; esac
+[ "$BAR_WIDTH" -lt 4 ] && BAR_WIDTH=4; [ "$BAR_WIDTH" -gt 20 ] && BAR_WIDTH=20
+bw2=6; [ "$BAR_WIDTH" -le 6 ] && bw2=$((BAR_WIDTH - 1))   # the shorter stage stays shorter than the full bar
 
 # ---- Themes -----------------------------------------------------------------------------------------------------
 ESC=$'\033'
@@ -37,25 +49,42 @@ c256() { printf '%s[38;5;%sm' "$ESC" "$1"; }
 # T_INSET: background of the cache inset; T_HIT: cache text for 80%+, 50%+, below
 case "$STATUSLINE_THEME" in
     ember)
-        T_GROW=(223 222 221 215 209 203 197 196) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(222 215 203)
-        C_REPO=$(c256 216) C_BRANCH=$(c256 180) C_COLON=$(c256 250) C_MODEL=$(c256 222) C_EFFORT=$(c256 215)
+        T_GROW=(151 187 223 222 215 209 203 196) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(150 222 203)
+        C_REPO=$(c256 216) C_BRANCH=$(c256 180) C_COLON=$(c256 250) C_MODEL=$(c256 222)
         C_ADD=$(c256 150) C_REM=$(c256 203) C_COST=$(c256 215) C_TOK=$(c256 255) C_LABEL=$(c256 250) C_DIM=$(c256 244) ;;
     sunset)
-        T_GROW=(229 222 216 210 204 198 168 162) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(223 210 198)
-        C_REPO=$(c256 223) C_BRANCH=$(c256 216) C_COLON=$(c256 250) C_MODEL=$(c256 210) C_EFFORT=$(c256 204)
+        T_GROW=(157 193 229 222 216 210 204 198) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(157 222 204)
+        C_REPO=$(c256 223) C_BRANCH=$(c256 216) C_COLON=$(c256 250) C_MODEL=$(c256 210)
         C_ADD=$(c256 186) C_REM=$(c256 204) C_COST=$(c256 222) C_TOK=$(c256 255) C_LABEL=$(c256 250) C_DIM=$(c256 244) ;;
+    ocean)
+        T_GROW=(84 120 156 192 222 216 210 203) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(84 222 203)
+        C_REPO=$(c256 117) C_BRANCH=$(c256 80) C_COLON=$(c256 250) C_MODEL=$(c256 159)
+        C_ADD=$(c256 79) C_REM=$(c256 210) C_COST=$(c256 80) C_TOK=$(c256 255) C_LABEL=$(c256 250) C_DIM=$(c256 244) ;;
+    forest)
+        T_GROW=(114 150 156 192 228 215 209 196) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(114 221 196)
+        C_REPO=$(c256 150) C_BRANCH=$(c256 114) C_COLON=$(c256 250) C_MODEL=$(c256 192)
+        C_ADD=$(c256 114) C_REM=$(c256 209) C_COST=$(c256 150) C_TOK=$(c256 255) C_LABEL=$(c256 250) C_DIM=$(c256 244) ;;
+    grape)
+        T_GROW=(120 156 192 228 222 216 210 204) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(120 222 204)
+        C_REPO=$(c256 183) C_BRANCH=$(c256 177) C_COLON=$(c256 250) C_MODEL=$(c256 219)
+        C_ADD=$(c256 156) C_REM=$(c256 204) C_COST=$(c256 177) C_TOK=$(c256 255) C_LABEL=$(c256 250) C_DIM=$(c256 244) ;;
+    mono)  # grayscale: additions bright, removals dim
+        T_GROW=(108 143 186 222 216 210 174 167) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(108 186 167)
+        C_REPO=$(c256 255) C_BRANCH=$(c256 250) C_COLON=$(c256 244) C_MODEL=$(c256 255)
+        C_ADD=$(c256 252) C_REM=$(c256 245) C_COST=$(c256 252) C_TOK=$(c256 255) C_LABEL=$(c256 248) C_DIM=$(c256 242) ;;
     *)  # sorbet: soft pastel, mint to coral pill
         T_GROW=(78 114 150 186 221 215 209 203) T_OFF=240 T_INK=234 T_INSET=236 T_HIT=(78 221 203)
-        C_REPO="${ESC}[94m" C_BRANCH="${ESC}[36m" C_COLON="${ESC}[97m" C_MODEL="${ESC}[38;2;45;251;251m" C_EFFORT="${ESC}[36m"
+        C_REPO="${ESC}[94m" C_BRANCH="${ESC}[36m" C_COLON="${ESC}[97m" C_MODEL="${ESC}[38;2;45;251;251m"
         C_ADD="${ESC}[32m" C_REM="${ESC}[31m" C_COST="${ESC}[38;5;80m" C_TOK="${ESC}[97m" C_LABEL="${ESC}[38;5;250m" C_DIM="${ESC}[90m" ;;
 esac
 if [ "$STATUSLINE_BG" = light ]; then   # darker text and a pale inset for a light terminal
     T_INSET=254 T_HIT=(28 130 160)
-    C_REPO=$(c256 25) C_BRANCH=$(c256 30) C_COLON=$(c256 240) C_MODEL=$(c256 31) C_EFFORT=$(c256 30)
+    C_REPO=$(c256 25) C_BRANCH=$(c256 30) C_COLON=$(c256 240) C_MODEL=$(c256 31)
     C_ADD=$(c256 28) C_REM=$(c256 124) C_COST=$(c256 30) C_TOK=$(c256 235) C_LABEL=$(c256 240) C_DIM=$(c256 244)
 fi
-C_ORANGE="${ESC}[38;5;208m" C_YELLOW="${ESC}[33m" C_RED="${ESC}[31m" C_BLUE="${ESC}[34m" C_GREEN="${ESC}[32m"
+C_YELLOW="${ESC}[33m" C_RED="${ESC}[31m" C_BLUE="${ESC}[34m" C_GREEN="${ESC}[32m"
 SEP="${DIM} | ${RST}"
+[ "$PILLS" = true ] && SEP=" "
 LCAP=$'\xee\x82\xb6' RCAP=$'\xee\x82\xb4' BOLT=$'\xef\x83\xa7'
 
 # ---- Environment ------------------------------------------------------------------------------------------------
@@ -196,6 +225,18 @@ pill() { # fill text -> $_o
     _o="${ESC}[38;5;$1m${LCAP}${ESC}[48;5;$1m${ESC}[38;5;${T_INK}m$2${RST}${ESC}[38;5;$1m${RCAP}${RST}"
 }
 
+# Label, bar, percent (and optional text) in one pill; the bar and percent keep their own colors, so every reset in them re-applies the background
+pill_bar() { # label bar [extra text in the label color] -> $_o
+    local ib="${ESC}[48;5;${T_INSET}m" ic="${ESC}[38;5;${T_INSET}m"
+    _o="${ic}${LCAP}${ib}${C_LABEL}$1 ${2//$RST/$RST$ib}${3:+ ${C_LABEL}$3}${RST}${ic}${RCAP}${RST}"
+}
+
+# Already-colored text in the same pill
+pill_text() { # text -> $_o
+    local ib="${ESC}[48;5;${T_INSET}m" ic="${ESC}[38;5;${T_INSET}m"
+    _o="${ic}${LCAP}${ib}${1//$RST/$RST$ib}${RST}${ic}${RCAP}${RST}"
+}
+
 # Step of a value against ascending thresholds: 0 .. number of thresholds
 _step=0
 step_of() { # value thresholds... -> $_step
@@ -229,7 +270,7 @@ if [ -n "$used_pct$five$seven" ]; then
     py=/usr/bin/python3; [ -x "$py" ] || py=python3
     n=0
     while IFS= read -r line; do bars[n]=$line; n=$((n+1)); done < <("$py" "$here/statusline-ctxbar.py" --theme "$STATUSLINE_THEME" --bg "$STATUSLINE_BG" \
-        --widths 10,6,3 "${used_pct:+$(printf '%.0f' "$used_pct")}" "${five:+$(printf '%.0f' "$five")}" "${seven:+$(printf '%.0f' "$seven")}" 2>/dev/null)
+        --widths $BAR_WIDTH,$bw2,3 "${used_pct:+$(printf '%.0f' "$used_pct")}" "${five:+$(printf '%.0f' "$five")}" "${seven:+$(printf '%.0f' "$seven")}" 2>/dev/null)
 fi
 # bars[w*3 + k]: w = 0 full, 1 shorter, 2 minimal; k = 0 Ctx, 1 5h, 2 7d
 _bar=""
@@ -338,14 +379,15 @@ if [ -n "$sid" ] && [ -f "$tpath" ]; then
 fi
 
 # ---- Segments, built for a given shrink stage -------------------------------------------------------------------
-# Effort: cool (low) to hot (max)
+# Effort: the theme's secondary range, green (low) to red (max); darker greens to reds on a light terminal
 case "$effort" in
-    low|medium) ec="$C_EFFORT" ;;
-    high) ec="$C_YELLOW" ;;
-    xhigh) ec="$C_ORANGE" ;;
-    max) ec="$C_RED" ;;
-    *) ec="" ;;
+    low) ei=0 ;; medium) ei=2 ;; high) ei=4 ;; xhigh) ei=6 ;; max) ei=7 ;; *) ei="" ;;
 esac
+ec=""
+if [ -n "$ei" ]; then
+    if [ "$STATUSLINE_BG" = light ]; then le=(28 28 64 64 136 136 166 124); ec=$(c256 "${le[$ei]}")
+    else ec=$(c256 "${T_GROW[$ei]}"); fi
+fi
 winsz=""
 [ -n "$cwsize" ] && { winsz=$(fmt_tok "$cwsize"); winsz=${winsz/.0k/k}; winsz=${winsz/.0M/M}; }
 
@@ -373,11 +415,14 @@ stage_vars() { # stage
 _o=""
 limit_seg() { # label k value reset
     _o=""
-    if [ -n "${bars[0]}" ]; then bar_for "$2" "$bw"; _o="${C_LABEL}$1${RST} $_bar"
+    local rt=""
+    if [ "$show_reset" = 1 ] && [[ "$4" =~ ^[0-9]+$ ]]; then until_reset "$4"; rt=$_t; fi
+    if [ -n "${bars[0]}" ]; then
+        bar_for "$2" "$bw"
+        if [ "$LIMIT_PILL" = true ]; then pill_bar "$1" "$_bar" "$rt"; return; fi
+        _o="${C_LABEL}$1${RST} $_bar"
     else plain_bar "$1" "$3"; fi
-    if [ "$show_reset" = 1 ] && [[ "$4" =~ ^[0-9]+$ ]]; then
-        until_reset "$4"; [ -n "$_t" ] && _o="$_o${C_DIM} ($_t)${RST}"
-    fi
+    [ -n "$rt" ] && _o="$_o${C_DIM} ($rt)${RST}"
 }
 
 git_seg() {
@@ -385,29 +430,47 @@ git_seg() {
     [ -n "$branch" ] && _o="$_o${C_COLON}:${RST}${C_BRANCH}${branch}${RST}"
     # Worktree is shown only when its name differs from the branch ("/" counts as "-")
     [ "$show_wt" = 1 ] && [ -n "$worktree" ] && [ "$worktree" != "${branch//\//-}" ] && _o="$_o ${C_DIM}(wt: ${worktree})${RST}"
+    [ "$PILLS" = true ] && pill_text "$_o"
     if [ "$SHOW_GIT_COUNTS" = true ] && [ -n "$branch" ]; then
         local cs=$C_REPO cu=$C_YELLOW ca=$C_BLUE
         [ "${staged:-0}" -eq 0 ] && cs=$C_DIM
         [ "${unstaged:-0}" -eq 0 ] && cu=$C_DIM
         [ "${ahead:-0}" -eq 0 ] && ca=$C_DIM
-        _o="$_o${SEP}${cs}S: ${staged:-0}${RST}${SEP}${cu}U: ${unstaged:-0}${RST}${SEP}${ca}A: ${ahead:-0}${RST}"
+        if [ "$PILLS" = true ]; then
+            local main=$_o   # the counts get a pill of their own
+            pill_text "${cs}S: ${staged:-0}${RST} ${cu}U: ${unstaged:-0}${RST} ${ca}A: ${ahead:-0}${RST}"
+            _o="$main $_o"
+        else
+            _o="$_o${SEP}${cs}S: ${staged:-0}${RST}${SEP}${cu}U: ${unstaged:-0}${RST}${SEP}${ca}A: ${ahead:-0}${RST}"
+        fi
     fi
 }
 
-diff_seg() { _o=""; [ -n "$added$removed" ] && _o="${C_ADD}+${added:-0}${RST} ${C_REM}-${removed:-0}${RST}"; }
+diff_seg() {
+    _o=""
+    [ -n "$added$removed" ] && _o="${C_ADD}+${added:-0}${RST} ${C_REM}-${removed:-0}${RST}"
+    [ "$PILLS" = true ] && [ -n "$_o" ] && pill_text "$_o"
+}
 
 model_seg() {
     _o=""
     [ -n "$model" ] && _o="${C_MODEL}${model}${RST}"
     [ "$show_eff" = 1 ] && [ -n "$effort" ] && _o="${_o:+$_o/}${ec}${effort}${RST}"
     [ "$show_win" = 1 ] && [ -n "$_o" ] && [ -n "$winsz" ] && _o="$_o ${C_DIM}(${winsz})${RST}"
+    [ "$PILLS" = true ] && [ -n "$_o" ] && pill_text "$_o"
 }
 
 ctx_seg() {
     local pl=$pill_growth
     [ "$show_cache_in" = 1 ] && pl=$pill_full
-    if [ -n "${bars[0]}" ]; then bar_for 0 "$bw"; _o="${C_LABEL}Ctx${RST} $_bar$pl"
-    else plain_bar Ctx "$used_pct"; _o="$_o$pl"; fi
+    if [ -n "${bars[0]}" ]; then
+        bar_for 0 "$bw"
+        if [ "$CTX_PILL" = true ]; then
+            pill_bar "$CTX_LABEL" "$_bar"; _o="$_o$pl"
+        else
+            _o="${C_LABEL}${CTX_LABEL}${RST} $_bar$pl"
+        fi
+    else plain_bar "$CTX_LABEL" "$used_pct"; _o="$_o$pl"; fi
 }
 
 cost_seg() {
@@ -442,7 +505,15 @@ usage_segs() { # the usage part for the current stage -> $_joined
     [ -n "$five" ] && [ "$show_5h" = 1 ] && { limit_seg 5h 1 "$five" "$five_reset"; a=$_o; }
     [ -n "$seven" ] && [ "$show_7d" = 1 ] && { limit_seg 7d 2 "$seven" "$seven_reset"; b=$_o; }
     [ "$SHOW_COST" = true ] && [ "$show_cost" = 1 ] && { cost_seg; k=$_o; }
-    [ "$SHOW_TOKENS" = true ] && [ "$show_tok" = 1 ] && [ -n "$tok_total" ] && t="${C_TOK}${tok_total}${RST}"
+    [ "$SHOW_TOKENS" = true ] && [ "$show_tok" = 1 ] && [ -n "$tok_total" ] && { t="${C_TOK}${tok_total}${RST}"; [ "$PILLS" = true ] && { pill_text "$t"; t=$_o; }; }
+    if [ "$LIMIT_PILL" = true ]; then
+        # Pills sit side by side with a space instead of a separator
+        local lim=""
+        [ -n "$a" ] && lim=$a
+        [ -n "$b" ] && lim="${lim:+$lim }$b"
+        if [ "$CTX_PILL" = true ] && [ -n "$lim" ]; then c="$c $lim"; lim=""; fi
+        a=$lim b=""
+    fi
     join_segs "$m" "$c" "$a" "$b" "$k" "$t"
 }
 
