@@ -2,7 +2,7 @@
 
 A status line for [Claude Code](https://claude.com/claude-code) that keeps a long session's vital signs in view: context usage, how much your last prompt added, rate limits, cost, and cache hits. It adapts to your window width and to whether you are on a subscription plan or straight API keys.
 
-![The status line](docs/statusline.png)
+![The status line, annotated](docs/statusline_annotated.png)
 
 Written up in [Put Your Claude Code Session's Vital Signs in the Status Line](https://zerofaultlabs.io/) on the ZeroFault Labs blog, which covers why each number is there.
 
@@ -12,7 +12,7 @@ Written up in [Put Your Claude Code Session's Vital Signs in the Status Line](ht
 | --- | --- |
 | `repo:branch` | A `(wt: name)` appears only when the worktree name differs from the branch. |
 | `+N -N` | Lines added and removed this session. |
-| `Model/effort (size)` | Effort is colored from cool to hot: low and medium use the theme color, high is yellow, xhigh orange, max red. |
+| `Model/effort (size)` | Effort is colored on the theme's secondary range, green at low to red at max. |
 | `Ctx ▌▌▌▌▌ NN%` | Context usage as a gradient pill bar. The bar and the percentage take their color from how full the window is. |
 | Growth pill `+N%` | How much context your last prompt added, as a percent of your window (or tokens). Its color steps from light to heavy over eight levels. |
 | Cache inset `⚡ NN%` | The lowest cache hit rate since your last prompt, so a cold-cache call stays visible after the next call warms it back up. |
@@ -53,7 +53,7 @@ Settings live in `~/.claude/statusline.conf`. Copy [`statusline.conf.example`](s
 
 | Setting | Values | What it does |
 | --- | --- | --- |
-| `STATUSLINE_THEME` | `sorbet` (default), `ember`, `sunset` | Recolors the whole line: bars, growth pill, cache inset, and text. |
+| `STATUSLINE_THEME` | `sorbet` (default), `ember`, `sunset`, `ocean`, `forest`, `grape`, `mono` | Recolors the whole line: bars, growth pill, cache inset, cost, effort and text. |
 | `STATUSLINE_LAYOUT` | `compact` (default), `wrap`, `full` | What to do when the window is too narrow (see below). |
 | `STATUSLINE_BG` | `dark` (default), `light` | Light mode is minimal: darker text and a pale bar track and inset. |
 | `BILLING` | `auto` (default), `plan`, `api` | `api` hides 5h and 7d and puts the cost in a colored pill. |
@@ -62,8 +62,38 @@ Settings live in `~/.claude/statusline.conf`. Copy [`statusline.conf.example`](s
 | `COST_STYLE` | `auto` (default), `pill`, `text` | `auto` is a pill for API billing and plain text on a plan. Set `pill` to get the pill on a plan too. |
 | `SHOW_DIFF`, `SHOW_COST`, `SHOW_TOKENS`, `SHOW_CACHE` | `true`, `false` | Turn a segment off. `SHOW_COST=false` also hides the last-prompt cost. |
 | `SHOW_GIT_COUNTS` | `true`, `false` | Adds staged, unstaged, and ahead counts after the branch. |
+| `PILLS` | `true`, `false` (default) | Puts every segment in a pill (repo, git counts, diff, model, Ctx, 5h, 7d, cost, tokens) and drops the separators. Turns on `CTX_PILL` and `LIMIT_PILL`. |
+| `CTX_PILL`, `LIMIT_PILL` | `true`, `false` (default) | Wrap only the Ctx bar, or only the 5h and 7d bars (reset time included), in a pill. |
+| `CTX_LABEL` | text, `Ctx` by default | The label before the Ctx bar, for example `C`. |
+| `BAR_WIDTH` | 4 to 20 | Cells in a full-size usage bar. Default 10. |
 | `STATUSLINE_MARGIN` | number | Columns kept free at the right edge. Default 6. |
 | `COST_STEPS` | 8 numbers, in cents | Where the cost pill steps to the next color. |
+
+### Themes
+
+Every theme has two color ranges that both run from low to high. The **primary** range colors the usage bars (Ctx, 5h, 7d). The **secondary** range colors what a prompt costs you: the growth pill, the cache inset, the cost pill and the effort level (green at low, red at max). Set one with `STATUSLINE_THEME`.
+
+| Theme | Primary: usage bars, low to high | Secondary: growth, cache, cost, effort, low to high |
+| --- | --- | --- |
+| `sorbet` (default) | cyan → blue → violet | mint → yellow → coral |
+| `ember` | amber → orange → rose | sage → cream → amber → brick red |
+| `sunset` | gold → orange → red → magenta | mint → gold → pink-red |
+| `ocean` | teal → blue → violet | seafoam → pale yellow → coral |
+| `forest` | green → lime → orange-red | moss green → yellow → red |
+| `grape` | lilac → purple → pink | green → yellow → rose |
+| `mono` | dim gray → white | muted green → muted yellow → muted red |
+
+![Each theme's primary and secondary color ranges](docs/theme-colors.png)
+
+The same themes on a real line, pills off. The usage bars are identical on each line (Ctx 8%, 5h 45%, 7d 98%) so you can compare the primary ranges. The growth pill, cache inset and cost pill climb from low to high down the page, and the effort color follows the secondary range.
+
+![All themes, pills off](docs/themes-pills-off.png)
+
+The same themes with `PILLS=true` and max effort:
+
+![All themes, pills on](docs/themes-pills-on.png)
+
+Run `docs/demo.sh` to print these lines in your own terminal, or `docs/demo.sh table` for the color ranges.
 
 ### Try a config
 
@@ -93,6 +123,7 @@ With `BILLING=auto`, the 5h and 7d bars appear once your account has reported ra
 - `statusline-ctxbar.py` renders the gradient bars (one Python process per render, at every width the layout might need).
 - `statusline-hook.sh` is a `UserPromptSubmit` hook. It snapshots token totals and cost for the per-prompt growth and cost figures, resets the lowest-cache-hit tracker, and deletes state files older than 14 days from `~/.claude/statusline-state/`.
 - `statusline.conf.example` lists every setting.
+- `docs/demo.sh` prints a sample line in every theme, pills off and on (`docs/demo.sh table` prints the color ranges). Handy for screenshots.
 
 The script also writes `~/.claude/statusline-seen-limits`, an empty marker that records that your account has reported rate limits.
 
