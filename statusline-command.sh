@@ -212,6 +212,16 @@ to_cents() { # -> $_cents
     f="${f}00"; _cents=$(( 10#${i:-0} * 100 + 10#${f:0:2} ))
 }
 
+# "3.54" -> 3540000 (millionths of a dollar); anything else (e.g. jq's "1e-05") counts as 0
+_micro=0
+to_micro() { # -> $_micro
+    _micro=0
+    [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return
+    local i=${1%%.*} f=""
+    [[ "$1" == *.* ]] && f=${1#*.}
+    f="${f}000000"; _micro=$(( 10#$i * 1000000 + 10#${f:0:6} ))
+}
+
 # ---- Bars: one python call renders every bar at every width a shrink stage might need ---------------------------
 bars=()
 if [ -n "$used_pct$five$seven" ]; then
@@ -242,9 +252,17 @@ if [ -n "$sid$tin$tout" ] && [ -n "${sid//[^A-Za-z0-9_-]/}" ]; then
     # Context growth this prompt: statusline-hook.sh copies .latest to .baseline on each prompt submit
     sid=${sid//[^A-Za-z0-9_-]/}
     mkdir -p "$sd"
-    printf '%s %s\n' "${tin:-0}" "${tout:-0}" > "$sd/$sid.latest"
-    bin=0 bout=0
-    [ -f "$sd/$sid.baseline" ] && read -r bin bout < "$sd/$sid.baseline"
+    printf '%s %s %s\n' "${tin:-0}" "${tout:-0}" "$cost" > "$sd/$sid.latest"
+    bin=0 bout=0 bcost=""
+    [ -f "$sd/$sid.baseline" ] && read -r bin bout bcost < "$sd/$sid.baseline"
+    # Cost added this prompt, in cents; a baseline from before cost tracking has no third field, so no delta
+    cost_delta=""
+    if [ -n "$cost" ] && [ -n "$bcost" ]; then
+        to_micro "$cost"; cm=$_micro; to_micro "$bcost"
+        dm=$(( cm - _micro )); [ "$dm" -lt 0 ] && dm=0
+        dm=$(( (dm + 5000) / 10000 ))
+        printf -v cost_delta '+$%d.%02d' $((dm / 100)) $((dm % 100))
+    fi
     d=$(( ${tin:-0} + ${tout:-0} - ${bin:-0} - ${bout:-0} ))
     [ "$d" -lt 0 ] && d=0
     # 8 color steps, light to heavy: tenths of a percent of the window, or fixed token counts
@@ -332,16 +350,16 @@ winsz=""
 [ -n "$cwsize" ] && { winsz=$(fmt_tok "$cwsize"); winsz=${winsz/.0k/k}; winsz=${winsz/.0M/M}; }
 
 # What each shrink stage removes (stage 0 = everything; each stage keeps the earlier removals):
-#   1 shorter bars   2 reset times and window size   3 token total   4 cache inset   5 7d   6 diff
+#   1 shorter bars   2 reset times and window size   3 token total   4 cache inset, cost delta   5 7d   6 diff
 #   7 5h             8 minimal bars, model name only 9 worktree name  10 cost (plan billing)  11 model
 # Repo, Ctx and the growth pill are never dropped.
 MAXSTAGE=11
 stage_vars() { # stage
-    bw=0 show_reset=1 show_win=1 show_tok=1 show_cache_in=1 show_7d=1 show_diff=1 show_5h=1 show_eff=1 show_wt=1 show_cost=1 show_model=1
+    bw=0 show_reset=1 show_win=1 show_tok=1 show_cache_in=1 show_7d=1 show_diff=1 show_5h=1 show_eff=1 show_wt=1 show_cost=1 show_cost_delta=1 show_model=1
     [ "$1" -ge 1 ] && bw=1
     [ "$1" -ge 2 ] && show_reset=0 show_win=0
     [ "$1" -ge 3 ] && show_tok=0
-    [ "$1" -ge 4 ] && show_cache_in=0
+    [ "$1" -ge 4 ] && show_cache_in=0 show_cost_delta=0
     [ "$1" -ge 5 ] && show_7d=0
     [ "$1" -ge 6 ] && show_diff=0
     [ "$1" -ge 7 ] && show_5h=0
@@ -399,10 +417,15 @@ cost_seg() {
     if [ "$COST_STYLE" = pill ] || { [ "$COST_STYLE" = auto ] && [ "$api" = true ]; }; then
         # A pill that steps through the growth colors as the bill grows (the default for API billing, where cost is the meter)
         to_cents "$cost"; step_of "$_cents" $COST_STEPS
-        local cc=(240 "${T_GROW[@]}")
-        pill "${cc[$_step]}" "$txt"
+        local cc=(240 "${T_GROW[@]}") f=${cc[$_step]}
+        pill "$f" "$txt"
+        # What the last prompt cost, in an inset like the cache one
+        if [ -n "$cost_delta" ] && [ "$show_cost_delta" = 1 ]; then
+            _o="${ESC}[38;5;${f}m${LCAP}${ESC}[48;5;${f}m${ESC}[38;5;${T_INK}m${txt}${ESC}[38;5;${f}m${ESC}[48;5;${T_INSET}m${RCAP} ${C_TOK}${cost_delta}${RST}${ESC}[38;5;${T_INSET}m${RCAP}${RST}"
+        fi
     else
         _o="${C_COST}${txt}${RST}"
+        [ -n "$cost_delta" ] && [ "$show_cost_delta" = 1 ] && _o="$_o ${C_TOK}${cost_delta}${RST}"
     fi
 }
 

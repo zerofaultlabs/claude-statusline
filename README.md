@@ -17,7 +17,7 @@ Written up in [Put Your Claude Code Session's Vital Signs in the Status Line](ht
 | Growth pill `+N%` | How much context your last prompt added, as a percent of your window (or tokens). Its color steps from light to heavy over eight levels. |
 | Cache inset `⚡ NN%` | The lowest cache hit rate since your last prompt, so a cold-cache call stays visible after the next call warms it back up. |
 | `5h` and `7d` | Rate-limit bars with time until reset. Plan accounts only. |
-| `$X.XX` | Session cost. With API billing it becomes a pill that steps through the growth colors as the bill grows. |
+| `$X.XX` `+$0.03` | Session cost, then what your last prompt added to it. With API billing (or `COST_STYLE=pill`) the cost is a pill that steps through the growth colors as the bill grows, and the added cost sits in an inset beside it. Both go away with `SHOW_COST=false`. |
 | Token total | New input + cache writes + output for the session, no cache reads. Counted incrementally from the transcript, so it stays fast in long sessions. |
 
 Every segment appears only if Claude Code reports its data. In a new session the usage figures are not available until the first response, so Ctx shows as 0% and the last known 5h and 7d are reused until fresh ones arrive.
@@ -60,7 +60,7 @@ Settings live in `~/.claude/statusline.conf`. Copy [`statusline.conf.example`](s
 | `GROWTH_SHOW` | `percent` (default), `tokens`, `both` | The number in the growth pill. |
 | `GROWTH_COLOR_BY` | `percent` (default), `tokens` | `percent` scales the color steps to your context window, so the same prompt reads differently on 200k and 1M. |
 | `COST_STYLE` | `auto` (default), `pill`, `text` | `auto` is a pill for API billing and plain text on a plan. Set `pill` to get the pill on a plan too. |
-| `SHOW_DIFF`, `SHOW_COST`, `SHOW_TOKENS`, `SHOW_CACHE` | `true`, `false` | Turn a segment off. |
+| `SHOW_DIFF`, `SHOW_COST`, `SHOW_TOKENS`, `SHOW_CACHE` | `true`, `false` | Turn a segment off. `SHOW_COST=false` also hides the last-prompt cost. |
 | `SHOW_GIT_COUNTS` | `true`, `false` | Adds staged, unstaged, and ahead counts after the branch. |
 | `STATUSLINE_MARGIN` | number | Columns kept free at the right edge. Default 6. |
 | `COST_STEPS` | 8 numbers, in cents | Where the cost pill steps to the next color. |
@@ -79,7 +79,7 @@ echo '{"workspace":{"current_dir":"'"$PWD"'"},"model":{"display_name":"Opus"},"c
 
 The script reads your window width from `$COLUMNS` and fits the line to it.
 
-- **compact** keeps everything on one line. If it does not fit, it shortens the bars, then drops things in this order: reset times and window size, token total, cache inset, 7d, diff, 5h, bars to the minimum, worktree name, cost, model. Repo, Ctx, and the growth pill are never dropped.
+- **compact** keeps everything on one line. If it does not fit, it shortens the bars, then drops things in this order: reset times and window size, token total, cache inset and last-prompt cost, 7d, diff, 5h, bars to the minimum, worktree name, cost, model. Repo, Ctx, and the growth pill are never dropped.
 - **wrap** puts the model and usage on the first line (shrunk the same way if needed) and `repo:branch` with the diff on a second line.
 - **full** never shrinks.
 
@@ -91,7 +91,7 @@ With `BILLING=auto`, the 5h and 7d bars appear once your account has reported ra
 
 - `statusline-command.sh` renders the line.
 - `statusline-ctxbar.py` renders the gradient bars (one Python process per render, at every width the layout might need).
-- `statusline-hook.sh` is a `UserPromptSubmit` hook. It snapshots token totals for the per-prompt growth figure, resets the lowest-cache-hit tracker, and deletes state files older than 14 days from `~/.claude/statusline-state/`.
+- `statusline-hook.sh` is a `UserPromptSubmit` hook. It snapshots token totals and cost for the per-prompt growth and cost figures, resets the lowest-cache-hit tracker, and deletes state files older than 14 days from `~/.claude/statusline-state/`.
 - `statusline.conf.example` lists every setting.
 
 The script also writes `~/.claude/statusline-seen-limits`, an empty marker that records that your account has reported rate limits.

@@ -8,7 +8,7 @@
 #STATUSLINE_BG=dark
 
 # What happens when the window is too narrow:
-#   compact  one line; shrinks to fit: shorter bars, then drops token total, cache inset, 7d, diff, 5h, worktree, cost, model
+#   compact  one line; shrinks to fit: shorter bars, then drops token total, cache inset and last-prompt cost, 7d, diff, 5h, worktree, cost, model
 #   wrap     line 1 is model and usage (shrunk to fit), line 2 is repo:branch and the diff
 #   full     never shrinks; Claude Code truncates
 #STATUSLINE_LAYOUT=compact
@@ -32,7 +32,7 @@
 
 # Segments
 #SHOW_DIFF=true
-#SHOW_COST=true
+#SHOW_COST=true           # false also hides the +$ last-prompt cost next to it
 #SHOW_TOKENS=true
 #SHOW_CACHE=true
 #SHOW_GIT_COUNTS=false     # true adds staged / unstaged / ahead counts after the branch
