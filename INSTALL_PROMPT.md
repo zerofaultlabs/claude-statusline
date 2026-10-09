@@ -20,9 +20,11 @@ Install the Claude Code status line from https://github.com/zerofaultlabs/claude
    - Remove fields and confirm only the matching segments disappear. A payload with no usage and no rate limits (a brand-new session) must still render, with Ctx at 0%.
    - Test `COLUMNS` at 200, 120, 90, and 60 and confirm the line gets shorter without wrapping, and with `STATUSLINE_LAYOUT=wrap` that it prints two lines.
    - Test a payload with no `rate_limits` and `BILLING=api`, and confirm the cost shows as a pill and 5h and 7d are hidden.
-   - Test each theme (`sorbet`, `ember`, `sunset`) and `STATUSLINE_BG=light` for errors.
+   - Test each theme (`sorbet`, `ember`, `sunset`, `ocean`, `forest`, `grape`, `mono`) and `STATUSLINE_BG=light` for errors.
+   - Test `PILLS=true` and confirm every segment renders in a pill with no ` | ` separators, and that the 5h and 7d pills include the reset time.
    - Test inside and outside a git repo, and with a missing transcript.
    - Confirm the hook copies `.latest` to `.baseline`, deletes `.hitmin`, and deletes a state file dated 15 days back (`touch -t`) while keeping recent ones.
+   - With a `.baseline` of `"84000 2000 4.21"` and a payload whose cost is 4.46, confirm the cost shows a `+$0.25` beside it, and that `SHOW_COST=false` hides both.
 6. **Show me** the settings.json diff and a sample rendered line, and remind me to pick a Nerd Font in my terminal if I have not.
 
-After that, mention that every setting is in `~/.claude/statusline.conf`: the theme, the layout when the window is narrow (`compact` or `wrap`), billing (`plan` or `api`), and light-terminal mode.
+After that, mention that every setting is in `~/.claude/statusline.conf`: the theme (seven to choose from), the layout when the window is narrow (`compact` or `wrap`), billing (`plan` or `api`), pills (`PILLS=true` puts every segment in a pill), bar width, and light-terminal mode.
