@@ -4,7 +4,7 @@ A status line for [Claude Code](https://claude.com/claude-code) that keeps a lon
 
 ![The status line, annotated](docs/statusline_annotated.png)
 
-Written up in [Put Your Claude Code Session's Vital Signs in the Status Line](https://zerofaultlabs.io/) on the ZeroFault Labs blog, which covers why each number is there.
+Written up in [A Status Line for Claude Code That Shows What Each Prompt Costs You](https://zerofaultlabs.io/claude-code-statusline/) on the ZeroFault Labs blog, which covers why each number is there.
 
 ## What it shows
 
